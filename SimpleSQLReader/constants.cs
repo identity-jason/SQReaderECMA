@@ -21,9 +21,12 @@ namespace SimpleSQLReader
         private const string PASSWORD = "Password";
         private const string SERVER = "Server Name";
         private const string DATABASE = "Database";
-        private const string VIEWNAME = "Table or View";
-        private const string OBJECTTYPE = "Object Type";
-        private const string ANCHORNAME = "Anchor Attribute";
+        private const string VIEWNAME = "Parent Table or View";
+        private const string DETAILVIEW = "Detail Table or View";
+        private const string OBJECTTYPE = "Object Type Column";
+        private const string ANCHORNAME = "Anchor Attribute Column";
+        private const string ATTRNAME = "Attribute Name Column";
+        private const string ATTRVALUE = "Attribute Value Column";
 
         //------------------------------
         //-- Default Page Sizes (for both import and export)

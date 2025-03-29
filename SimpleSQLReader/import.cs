@@ -8,6 +8,10 @@ using Microsoft.MetadirectoryServices;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Data.SqlClient;
+using System.Diagnostics;
+using Newtonsoft.Json;
+
+
 
 namespace SimpleSQLReader
 {
@@ -18,16 +22,18 @@ namespace SimpleSQLReader
 
         public int ImportMaxPageSize => MAXIMUM_PAGE_SIZE;
 
+        //Dictionary<string, long> WaterMark = new Dictionary<string, long>();
+        Dictionary<string, Watermark> ChangeTracking = new Dictionary<string, Watermark>();
+        Dictionary<string, Watermark> LastState = new Dictionary<string, Watermark>();
+
         public CloseImportConnectionResults CloseImportConnection(CloseImportConnectionRunStep importRunStep)
         {
-            //-- update watermark
-            var cmd = PersistedConnector.CreateCommand();
-            cmd.CommandText = "select CHANGE_TRACKING_CURRENT_VERSION()";
-            var watermark = cmd.ExecuteScalar() as string;            
-            logger.Info(watermark);
-            CloseConnection();
-
+            //watermark = System.Text.Json.JsonSerializer.Serialize(WaterMark);
+            watermark = JsonConvert.SerializeObject(ChangeTracking);
+            File.WriteAllText(MAUtils.MAFolder + @"\watermark.json", watermark);
             return new CloseImportConnectionResults(watermark);
+
+            //return new CloseImportConnectionResults("OK");
         }
 
         private int start_item = 0;
@@ -36,13 +42,14 @@ namespace SimpleSQLReader
 
         public OpenImportConnectionResults OpenImportConnection(KeyedCollection<string, ConfigParameter> configParameters, Schema types, OpenImportConnectionRunStep importRunStep)
         {
+            Debugger.Launch();
             StoreParameters(configParameters, types, importRunStep);
             var rv = new OpenImportConnectionResults();
 
             //-- create a connection out to the target system
             //-- and persist it for later use as required
             PersistedConnector = OpenConnection();
-            if (PersistedConnector!=null)
+            if (PersistedConnector != null)
             {
                 logger.Info("start item: {0}", start_item);
                 logger.Info("page size: {0}", page_size);
@@ -51,15 +58,39 @@ namespace SimpleSQLReader
                 page_size = importRunStep.PageSize;
                 watermark = importRunStep.CustomData;
                 if (string.IsNullOrEmpty(watermark) || "OK".Equals(watermark))
-                    watermark = "0";
+                {
+                    watermark = "OK";
+                }
+                else
+                {
+                    //WaterMark = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, long>>(watermark);
+                    if (IRS.ImportType == OperationType.Full)
+                    {
+                        //WaterMark = new Dictionary<string, long>();
+                        LastState = new Dictionary<string, Watermark>();
+                        ChangeTracking = new Dictionary<string, Watermark>();
+                    }
+                    else
+                    {
+                        //WaterMark = JsonConvert.DeserializeObject<Dictionary<string, long>>(watermark);
+                        LastState = JsonConvert.DeserializeObject<Dictionary<string, Watermark>>(watermark);
+                        ChangeTracking = new Dictionary<string, Watermark>();
+                    }
+                }
             }
 
             return rv;
         }
 
+
+
         public GetImportEntriesResults GetImportEntries(GetImportEntriesRunStep importRunStep)
         {
 #if SUPPORT_DELTA
+
+            if (Everything == null)
+                PreloadEverything(IRS.ImportType != OperationType.Full);
+
             if (IRS.ImportType == OperationType.Full)
                 return FetchImport(importRunStep);
             else
@@ -70,111 +101,96 @@ namespace SimpleSQLReader
         }
 #endif
 
-
-        //-- requires use of SQL change tracking
-        //-- https://www.codeproject.com/Articles/1173754/Change-Tracking-Example-SQL-Server
-
-
 #if SUPPORT_DELTA
         private GetImportEntriesResults FetchDeltaImport(GetImportEntriesRunStep importRunStep)
         {
-            /*
-select hr.*
-from hr as hr
-inner join CHANGETABLE(CHANGES dbo.hr, @watermark) as ct on hr.EmployeeID = ct.employeeID
-order by hr.EmployeeID
-offset 0 rows fetch next 10 rows only
-
-select CHANGE_TRACKING_CURRENT_VERSION()
-            */
             var rv = new List<CSEntryChange>();
-            var cmd = PersistedConnector.CreateCommand();
-            cmd.CommandText = string.Format("select src.*,convert(nvarchar(MAX),ct.SYS_CHANGE_VERSION) as SYS_CHANGE_VERSION from {0} as src inner join CHANGETABLE(CHANGES {0}, {4}) as ct on src.{1}=ct.{1} order by src.{1} offset {2} rows fetch next {3} rows only",
-                GetParameter(VIEWNAME).Value,
-                GetParameter(ANCHORNAME).Value,
-                start_item,
-                page_size,
-                watermark);
-            logger.Info(cmd.CommandText);
 
-            SqlDataReader dr = cmd.ExecuteReader();
-            while (dr.Read())
+            while (rv.Count < page_size && Everything.Count > 0)
             {
-                CSEntryChange csc = CSEntryChange.Create();
-                csc.ObjectType = GetParameter(OBJECTTYPE).Value;
-                csc.ObjectModificationType = ObjectModificationType.Add;
-                for (int i = 0; i < dr.FieldCount; i++)
-                {
-                    var name = dr.GetName(i);
+                bool to_add = false;
 
-                    if (name.Equals(GetParameter(ANCHORNAME).Value))
+                var csc = Everything.Dequeue();
+                var anchor = csc.AnchorAttributes[0].Value as string;
+                var checksum = csc.GetCrc32();
+
+                ChangeTracking.Add(csc.AnchorAttributes[0].Value as string,
+    new Watermark
+    {
+        ObjectClass = csc.ObjectType,
+        Checksum = checksum,
+        DeleteMe = false
+    });
+
+                //if (ChangeTracking.ContainsKey(anchor) &&
+                if (LastState.ContainsKey(anchor))
+                {
+                    if (ChangeTracking[anchor].Checksum != LastState[anchor].Checksum)
                     {
-                        //-- we have the anchor - add it as such!
-                        csc.AnchorAttributes.Add(AnchorAttribute.Create(name, dr[i] as string));
-                    }
-                    else if (name.Equals(SYS_CHANGE_VERSION))
-                    {                        
-                        watermark = dr[i] as string;
-                        logger.Info("Acquiring new watermark: {0}", watermark);
-                    }
-                    else
-                    {
-                        csc.AttributeChanges.Add(AttributeChange.CreateAttributeAdd(name, dr[i] as string));
+                        to_add = true;
                     }
                 }
+                else
+                {
+                    //WaterMark.Add(csc.AnchorAttributes[0].Value as string, csc.GetHashCode());
+
+                    to_add = true;
+                }
+                if (to_add == true)
+                    rv.Add(csc);
+            }
+
+#if DELTA_DELETE
+            if (ToDelete != null)
+            {
+                while (rv.Count < page_size && ToDelete.Count > 0)
+                {
+                    rv.Add(ToDelete.Dequeue());
+                }
+            }
+#endif
+
+#if DELTA_DELETE
+            var has_more = Everything.Count > 0;
+
+            if (ToDelete != null)
+                has_more = ToDelete.Count > 0 || Everything.Count > 0;
+#else
+            var has_more = Everything.Count>0;
+#endif
+
+            // start_item += rv.Count;
+            //if (rv.Count == page_size)
+            //    has_more = true;
+
+            return new GetImportEntriesResults(watermark, has_more, rv);
+        }
+#endif
+
+
+        private GetImportEntriesResults FetchImport(GetImportEntriesRunStep importRunStep)
+        {
+            var rv = new List<CSEntryChange>();
+
+            while (rv.Count < page_size && Everything.Count > 0)
+            {
+                var csc = Everything.Dequeue();
+                //WaterMark.Add(csc.AnchorAttributes[0].Value as string, csc.GetHashCode());
+                ChangeTracking.Add(csc.AnchorAttributes[0].Value as string,
+                    new Watermark
+                    {
+                        ObjectClass = csc.ObjectType,
+                        Checksum = csc.GetCrc32()
+                    });
                 rv.Add(csc);
             }
-            dr.Close();
 
             var has_more = false;
-            start_item += rv.Count;
+            // start_item += rv.Count;
             if (rv.Count == page_size)
                 has_more = true;
 
             return new GetImportEntriesResults(watermark, has_more, rv);
         }
-#endif
-        private GetImportEntriesResults FetchImport(GetImportEntriesRunStep importRunStep)
-        {
-            var rv = new List<CSEntryChange>();
-
-            var cmd = PersistedConnector.CreateCommand();
-            cmd.CommandText = string.Format("select * from {0} order by {1} offset {2} rows fetch next {3} rows only",
-                GetParameter(VIEWNAME).Value,
-                GetParameter(ANCHORNAME).Value,
-                start_item,
-                page_size);
-
-            SqlDataReader dr = cmd.ExecuteReader();
-            while (dr.Read())
-            {
-                CSEntryChange csc = CSEntryChange.Create();
-                csc.ObjectType = GetParameter(OBJECTTYPE).Value;
-                csc.ObjectModificationType = ObjectModificationType.Add;
-                for (int i=0;i<dr.FieldCount;i++)
-                {
-                    var name = dr.GetName(i);
-                    if (name.Equals(GetParameter(ANCHORNAME).Value))
-                    {
-                        //-- we have the anchor - add it as such!
-                        csc.AnchorAttributes.Add(AnchorAttribute.Create(name, dr[i] as string));
-                    }
-                    else
-                    {
-                        csc.AttributeChanges.Add(AttributeChange.CreateAttributeAdd(name, dr[i] as string));
-                    }
-                }
-                rv.Add(csc);
-            }
-            dr.Close();
-
-            var has_more = false;
-            start_item += rv.Count;
-            if (rv.Count == page_size)
-                has_more = true;
-
-            return new GetImportEntriesResults(watermark, has_more,rv);
-        }
     }
-
 }

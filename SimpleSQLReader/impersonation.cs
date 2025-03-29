@@ -52,6 +52,7 @@ namespace SimpleSQLReader
             }
             catch (Exception ex)
             {
+                logger.Error("Ending impersonation failed: {0}", ex.Message);
             }
         }
 
@@ -85,6 +86,7 @@ namespace SimpleSQLReader
                 }
                 catch (Exception ex)
                 {
+                    logger.Warn("Impersonation failed: {0}", ex.Message);
                     success = false;
                 }
 
@@ -120,6 +122,7 @@ namespace SimpleSQLReader
             }
             catch (Exception ex)
             {
+                logger.Error("Impersonation failed: {0}", ex.Message);
             }
 
             return true;

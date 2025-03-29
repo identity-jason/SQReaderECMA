@@ -49,14 +49,18 @@ namespace SimpleSQLReader
             //-- in between the server and the credential 
             //-- feel free to edit as much as needed!
             rv.Add(ConfigParameterDefinition.CreateStringParameter(SERVER, null, string.Empty));
-            rv.Add(ConfigParameterDefinition.CreateStringParameter(DATABASE, null, string.Empty));
-            rv.Add(ConfigParameterDefinition.CreateStringParameter(VIEWNAME, null, string.Empty));
+            rv.Add(ConfigParameterDefinition.CreateStringParameter(DATABASE, null, string.Empty));        
             rv.Add(ConfigParameterDefinition.CreateDividerParameter());
             rv.Add(ConfigParameterDefinition.CreateStringParameter(USERNAME, USERNAME_REGEX, USERNAME_DEFAULT));
             rv.Add(ConfigParameterDefinition.CreateEncryptedStringParameter(PASSWORD, null));
             rv.Add(ConfigParameterDefinition.CreateDividerParameter());
+            rv.Add(ConfigParameterDefinition.CreateStringParameter(VIEWNAME, null, string.Empty));
+            rv.Add(ConfigParameterDefinition.CreateStringParameter(DETAILVIEW, null, string.Empty));
+            rv.Add(ConfigParameterDefinition.CreateDividerParameter());
             rv.Add(ConfigParameterDefinition.CreateStringParameter(OBJECTTYPE, null));
             rv.Add(ConfigParameterDefinition.CreateStringParameter(ANCHORNAME, null));
+            rv.Add(ConfigParameterDefinition.CreateStringParameter(ATTRNAME, null));
+            rv.Add(ConfigParameterDefinition.CreateStringParameter(ATTRVALUE, null));
             return rv;
         }
 
@@ -91,7 +95,7 @@ namespace SimpleSQLReader
         private IList<ConfigParameterDefinition> GetSchemaParameters(KeyedCollection<string, ConfigParameter> configParameters, int pageNumber = 0)
         {
             var rv = new List<ConfigParameterDefinition>();
-
+            
             return rv;
         }
         #endregion
