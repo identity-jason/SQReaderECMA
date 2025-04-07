@@ -9,6 +9,7 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using NLog;
 using System.Security;
+using NLog.LayoutRenderers.Wrappers;
 
 /// <summary>
 /// ECMA2 Template Project

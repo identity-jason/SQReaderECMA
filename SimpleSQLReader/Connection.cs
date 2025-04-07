@@ -35,14 +35,27 @@ namespace SimpleSQLReader
             /// This should be done using the constant strings we've defined rather than "magic" strings
             /// 
             /// e.g.
-            ///             
-            BeginImpersonation();
+            ///
+            bool use_impersonation = true;
+            if (string.IsNullOrEmpty(GetParameter(USERNAME).Value))
+            {
+                logger.Info("No username provided - defaulting to service identity");
+                use_impersonation = false;
+            }
+            else
+            {
+                BeginImpersonation();
+            }
+            logger.Info("Connecting to {0} on server {1}",
+                GetParameter(DATABASE).Value,
+                GetParameter(SERVER).Value);
             SqlConnection con = new SqlConnection(
                 string.Format("Server={0};Initial Catalog={1};Integrated Security = SSPI; Persist Security Info = False;max pool size=10",
                 GetParameter(SERVER).Value,
                 GetParameter(DATABASE).Value));
             con.Open();
-            EndImpersonation();
+            if (use_impersonation)
+                EndImpersonation();
 
             return con;
         }

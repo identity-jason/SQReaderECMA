@@ -42,7 +42,7 @@ namespace SimpleSQLReader
 
         public OpenImportConnectionResults OpenImportConnection(KeyedCollection<string, ConfigParameter> configParameters, Schema types, OpenImportConnectionRunStep importRunStep)
         {
-            Debugger.Launch();
+            //--Debugger.Launch();
             StoreParameters(configParameters, types, importRunStep);
             var rv = new OpenImportConnectionResults();
 
@@ -51,12 +51,15 @@ namespace SimpleSQLReader
             PersistedConnector = OpenConnection();
             if (PersistedConnector != null)
             {
-                logger.Info("start item: {0}", start_item);
-                logger.Info("page size: {0}", page_size);
-                logger.Info("Watermark: {0}", watermark);
+                
                 start_item = 0;
                 page_size = importRunStep.PageSize;
                 watermark = importRunStep.CustomData;
+
+                logger.Info("start item: {0}", start_item);
+                logger.Info("page size: {0}", page_size);
+                logger.Info("Watermark: {0}", watermark);
+
                 if (string.IsNullOrEmpty(watermark) || "OK".Equals(watermark))
                 {
                     watermark = "OK";
@@ -104,6 +107,7 @@ namespace SimpleSQLReader
 #if SUPPORT_DELTA
         private GetImportEntriesResults FetchDeltaImport(GetImportEntriesRunStep importRunStep)
         {
+            logger.Info("Loading staged data to (Delta) import results");
             var rv = new List<CSEntryChange>();
 
             while (rv.Count < page_size && Everything.Count > 0)
@@ -114,26 +118,33 @@ namespace SimpleSQLReader
                 var anchor = csc.AnchorAttributes[0].Value as string;
                 var checksum = csc.GetCrc32();
 
-                ChangeTracking.Add(csc.AnchorAttributes[0].Value as string,
-    new Watermark
-    {
-        ObjectClass = csc.ObjectType,
-        Checksum = checksum,
-        DeleteMe = false
-    });
+                logger.Info("Processing: {0}", anchor);
+
+                ChangeTracking.Add(anchor,
+                    new Watermark
+                    {
+                        ObjectClass = csc.ObjectType,
+                        Checksum = checksum,
+                        DeleteMe = false
+                    });
 
                 //if (ChangeTracking.ContainsKey(anchor) &&
                 if (LastState.ContainsKey(anchor))
                 {
                     if (ChangeTracking[anchor].Checksum != LastState[anchor].Checksum)
                     {
+                        logger.Info("Checksums don't match - adding to update queue");
                         to_add = true;
+                    }
+                    else
+                    {
+                        logger.Info("Checksums match - dropping from processing queue");
                     }
                 }
                 else
                 {
                     //WaterMark.Add(csc.AnchorAttributes[0].Value as string, csc.GetHashCode());
-
+                    logger.Info("New Object - adding to update queue");
                     to_add = true;
                 }
                 if (to_add == true)
@@ -143,6 +154,7 @@ namespace SimpleSQLReader
 #if DELTA_DELETE
             if (ToDelete != null)
             {
+                logger.Info("Pending deletes: {0}", ToDelete.Count);
                 while (rv.Count < page_size && ToDelete.Count > 0)
                 {
                     rv.Add(ToDelete.Dequeue());
@@ -163,6 +175,8 @@ namespace SimpleSQLReader
             //if (rv.Count == page_size)
             //    has_more = true;
 
+            logger.Info("{0} results loaded - more to load? {1}", rv.Count, has_more);
+
             return new GetImportEntriesResults(watermark, has_more, rv);
         }
 #endif
@@ -170,6 +184,7 @@ namespace SimpleSQLReader
 
         private GetImportEntriesResults FetchImport(GetImportEntriesRunStep importRunStep)
         {
+            logger.Info("Loading staged data to import results");
             var rv = new List<CSEntryChange>();
 
             while (rv.Count < page_size && Everything.Count > 0)
@@ -185,10 +200,14 @@ namespace SimpleSQLReader
                 rv.Add(csc);
             }
 
+            
+
             var has_more = false;
             // start_item += rv.Count;
             if (rv.Count == page_size)
                 has_more = true;
+
+            logger.Info("{0} results loaded - more to load? {1}", rv.Count, has_more);
 
             return new GetImportEntriesResults(watermark, has_more, rv);
         }

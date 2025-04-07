@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Collections.Specialized;
 using System.Configuration;
 using System.Data.SqlClient;
+using System.Diagnostics;
 using System.Linq;
 using System.ServiceModel.Syndication;
 using System.Text;
@@ -25,11 +26,16 @@ namespace SimpleSQLReader
 
         void PreloadEverything(bool isDelta = false)
         {
+            logger.Info("Preloading Data from SQL");
+            
             attrname = GetParameter(ATTRNAME).Value;
             attrvalue = GetParameter(ATTRVALUE).Value;
             anchorname = GetParameter(ANCHORNAME).Value;
 
-            logger.Info("Preloading everything");
+            logger.Info("Anchor: {0}", anchorname);
+            logger.Info("Attribute Name: {0}", attrname);
+            logger.Info("Attribute Value: {0}", attrvalue);
+            
             EverythingIndex = new Dictionary<string, CSEntryChange>();
 
             LoadPrimaryView(isDelta);
@@ -40,6 +46,8 @@ namespace SimpleSQLReader
             logger.Info("Convert Index to Queue for loading");
             Everything = new Queue<CSEntryChange>(EverythingIndex.Values);
             EverythingIndex = null;
+
+            logger.Info("{0} item staged for import", Everything.Count);
 
             start_item = 0;
         }
@@ -53,12 +61,14 @@ namespace SimpleSQLReader
             do
             {
                 var cmd = PersistedConnector.CreateCommand();
-
+                logger.Info("Loading Detail Page from SQL");
                 cmd.CommandText = string.Format("select * from {0} order by {1} offset {2} rows fetch next {3} rows only",
                     GetParameter(DETAILVIEW).Value,
                     anchorname,
                     start_item,
                     page_size);
+
+                logger.Info(cmd.CommandText);
 
                 SqlDataReader dr = cmd.ExecuteReader();
                 details = 0;
@@ -69,6 +79,7 @@ namespace SimpleSQLReader
                     string attr = dr[attrname] as string;
                     string val = dr[attrvalue] as string;
 
+                    //--logger.Trace("{0},{1},{2}", anchor, attr, val);
 
                     if (!detailcache.ContainsKey(anchor))
                     {
@@ -89,6 +100,7 @@ namespace SimpleSQLReader
                 dr.Close();
             } while (details == page_size);
 
+            logger.Info("Merging Details into primary view");
 
             foreach (string anchor in detailcache.Keys)
             {
@@ -110,7 +122,6 @@ namespace SimpleSQLReader
                             {
                                 foreach (var val in detailcache[anchor][attr])
                                 {
-
                                     ChangeTracking[anchor].AddText(val as string);
                                 }
                             }
@@ -136,8 +147,10 @@ namespace SimpleSQLReader
         {
             logger.Info("Load primary view");
 
+            int counter = 0;
             do
             {
+                counter = 0;
                 var cmd = PersistedConnector.CreateCommand();
 
                 cmd.CommandText = string.Format("select * from {0} order by {1} offset {2} rows fetch next {3} rows only",
@@ -146,7 +159,11 @@ namespace SimpleSQLReader
                     start_item,
                     page_size);
 
+                logger.Info("Executing SQL to load next page of data:");
+                logger.Info(cmd.CommandText);
+
                 SqlDataReader dr = cmd.ExecuteReader();
+
                 while (dr.Read())
                 {
                     string anchor = string.Empty;
@@ -155,8 +172,9 @@ namespace SimpleSQLReader
                     csc.ObjectModificationType = ObjectModificationType.Add;
                     for (int i = 0; i < dr.FieldCount; i++)
                     {
+
                         var name = dr.GetName(i);
-                        if (name.Equals(anchorname))
+                        if (name.Equals(anchorname, StringComparison.CurrentCultureIgnoreCase))
                         {
                             //-- we have the anchor - add it as such!
                             csc.AnchorAttributes.Add(AnchorAttribute.Create(name, dr[i]));
@@ -164,43 +182,56 @@ namespace SimpleSQLReader
                         }
                         else
                         {
-                            csc.AttributeChanges.Add(AttributeChange.CreateAttributeAdd(name, dr[i] as string));
+                            if (dr[i] == null)
+                            {
+                                csc.AttributeChanges.Add(AttributeChange.CreateAttributeAdd(name, dr[i] as string));
+                            }
                         }
                     }
 
-                    EverythingIndex.Add(anchor, csc);
+                    if (string.IsNullOrEmpty(anchor) == false)
+                    {
+                        EverythingIndex.Add(anchor, csc);
 
 #if DELTA_DELETE
-                    if (isDelta)
-                    {
-                        if (ChangeTracking.ContainsKey(anchor))
+                        if (isDelta)
                         {
-                            ChangeTracking[anchor].DeleteMe = false;
+                            if (ChangeTracking.ContainsKey(anchor))
+                            {
+                                ChangeTracking[anchor].DeleteMe = false;
+                            }
                         }
-                    }
 #endif
+                    }
+                    else
+                    {
+                        logger.Warn("No Anchor Detected: {0}", dr[0]);
+                    }
+
+                    counter++;
                 }
-
-
 
                 start_item += page_size;
                 dr.Close();
-            } while (EverythingIndex.Count % page_size == 0);
+                //} while (EverythingIndex.Count % page_size == 0);
+            } while (counter == page_size);
 
             if (isDelta)
             {
                 LastState.Keys.ToList().ForEach(key =>
                 {
-                    if (ChangeTracking.ContainsKey(key) == false)
+                    if (key != null)
                     {
-                        //-- item exists in last state but not this one - therefore is a delete
-                        var t = CSEntryChange.Create();
-                        t.ObjectType = LastState[key].ObjectClass;
-                        t.AnchorAttributes.Add(AnchorAttribute.Create(anchorname, key));
-                        t.ObjectModificationType = ObjectModificationType.Delete;
+                        if (ChangeTracking.ContainsKey(key) == false)
+                        {
+                            //-- item exists in last state but not this one - therefore is a delete
+                            var t = CSEntryChange.Create();
+                            t.ObjectType = LastState[key].ObjectClass;
+                            t.AnchorAttributes.Add(AnchorAttribute.Create(anchorname, key));
+                            t.ObjectModificationType = ObjectModificationType.Delete;
+                        }
                     }
-                }
-                );
+                });
             }
 
             start_item = 0;
