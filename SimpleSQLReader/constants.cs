@@ -27,7 +27,10 @@ namespace SimpleSQLReader
         private const string ANCHORNAME = "Anchor Attribute Column";
         private const string ATTRNAME = "Attribute Name Column";
         private const string ATTRVALUE = "Attribute Value Column";
-
+        private const string DETAILPAGENAME = "Size of Detail Page";
+        private const string DETAILPAGEVALUE = "1000";
+        private const string METANAME = "Extend Controls";
+        private const string INT_REGEX = @"^\d+$";
         //------------------------------
         //-- Default Page Sizes (for both import and export)
         //--

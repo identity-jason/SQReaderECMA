@@ -61,6 +61,8 @@ namespace SimpleSQLReader
             rv.Add(ConfigParameterDefinition.CreateStringParameter(ANCHORNAME, null));
             rv.Add(ConfigParameterDefinition.CreateStringParameter(ATTRNAME, null));
             rv.Add(ConfigParameterDefinition.CreateStringParameter(ATTRVALUE, null));
+            rv.Add(ConfigParameterDefinition.CreateDividerParameter());
+            rv.Add(ConfigParameterDefinition.CreateStringParameter(DETAILPAGENAME, INT_REGEX, DETAILPAGEVALUE));
             return rv;
         }
 

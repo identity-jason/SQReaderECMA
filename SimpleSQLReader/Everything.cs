@@ -26,6 +26,7 @@ namespace SimpleSQLReader
 
         void PreloadEverything(bool isDelta = false)
         {
+            //Debugger.Launch();
             logger.Info("Preloading Data from SQL");
             
             attrname = GetParameter(ATTRNAME).Value;
@@ -56,6 +57,7 @@ namespace SimpleSQLReader
         {
             logger.Info("Load detail view");
             int details = 0;
+            int detail_page_size = int.Parse(GetParameter(DETAILPAGENAME).Value);
             start_item = 0;
             Dictionary<string, Dictionary<string, List<object>>> detailcache = new Dictionary<string, Dictionary<string, List<object>>>();
             do
@@ -66,7 +68,7 @@ namespace SimpleSQLReader
                     GetParameter(DETAILVIEW).Value,
                     anchorname,
                     start_item,
-                    page_size);
+                    detail_page_size);
 
                 logger.Info(cmd.CommandText);
 
@@ -75,7 +77,7 @@ namespace SimpleSQLReader
                 while (dr.Read())
                 {
                     details++;
-                    string anchor = dr[anchorname] as string;
+                    string anchor = dr[anchorname].ToString();// as string;
                     string attr = dr[attrname] as string;
                     string val = dr[attrvalue] as string;
 
@@ -96,9 +98,9 @@ namespace SimpleSQLReader
                     }
                 }
 
-                start_item += page_size;
+                start_item += detail_page_size;
                 dr.Close();
-            } while (details == page_size);
+            } while (details == detail_page_size);
 
             logger.Info("Merging Details into primary view");
 
@@ -176,15 +178,17 @@ namespace SimpleSQLReader
                         var name = dr.GetName(i);
                         if (name.Equals(anchorname, StringComparison.CurrentCultureIgnoreCase))
                         {
+                            Guid g = Guid.Parse(dr[i].ToString());
                             //-- we have the anchor - add it as such!
-                            csc.AnchorAttributes.Add(AnchorAttribute.Create(name, dr[i]));
-                            anchor = dr[i] as string;
+                            csc.AnchorAttributes.Add(AnchorAttribute.Create(name, "{" + g.ToString().ToUpper() + "}"));
+                            anchor = dr[i].ToString();//-- as string;
                         }
                         else
                         {
-                            if (dr[i] == null)
+                            if (dr[i] != null)
                             {
-                                csc.AttributeChanges.Add(AttributeChange.CreateAttributeAdd(name, dr[i] as string));
+                                //--csc.AttributeChanges.Add(AttributeChange.CreateAttributeAdd(name, dr[i] as string));
+                                csc.AttributeChanges.Add(AttributeChange.CreateAttributeAdd(name, dr[i].ToString()));
                             }
                         }
                     }
